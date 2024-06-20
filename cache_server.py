@@ -1,13 +1,12 @@
+import os
 from flask import Flask, request, jsonify
-from pytube import YouTube
-
 from lru_cache import LRUCache
+from pytube import YouTube
 
 app = Flask(__name__)
 
 # Initialize LRU cache with a capacity of 3
 lru_cache = LRUCache(capacity=3)
-
 
 @app.route('/get_video', methods=['GET'])
 def get_video():
@@ -16,7 +15,7 @@ def get_video():
         return jsonify({"error": "No URL provided"}), 400
 
     cached_video = lru_cache.get(url)
-    if cached_video:
+    if cached_video and os.path.exists(cached_video):
         return jsonify({"message": "Video is already in cache", "video_file": cached_video}), 200
     else:
         try:
@@ -27,7 +26,6 @@ def get_video():
             return jsonify({"message": "Video downloaded and cached", "video_file": video_file}), 200
         except Exception as e:
             return jsonify({"error": str(e)}), 500
-
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=8000)
