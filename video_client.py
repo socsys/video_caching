@@ -1,3 +1,5 @@
+import time
+
 import requests
 
 
@@ -20,7 +22,10 @@ def main():
 
     for url in urls:
         print(f"Requesting video from {url}...")
+        start = time.time()
         request_video(url)
+        end = time.time()
+        print(end - start)
 
 
 if __name__ == "__main__":
