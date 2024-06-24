@@ -21,9 +21,10 @@ def request_video(url):
 
 def main():
     urls = [
-        "https://www.youtube.com/watch?v=9bZkp7q19f0",
-        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        "https://www.youtube.com/watch?v=3JZ_D3ELwOQ",
+        # "https://www.youtube.com/watch?v=9bZkp7q19f0",
+        # "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        # "https://www.youtube.com/watch?v=3JZ_D3ELwOQ",
+        "gangnam_style.mp4"
     ]
 
     total_time_with_cache = 0
@@ -51,7 +52,7 @@ def main():
     print(f"Cache misses: {cache_misses}")
 
     try:
-        response = requests.get(f'http://0.0.0.0:8000/metrics')
+        response = requests.get(f'http://127.0.0.1:8000/metrics')
         response.raise_for_status()
         metrics = response.json()
         print("\nServer Metrics:")
