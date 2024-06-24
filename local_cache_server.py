@@ -1,9 +1,10 @@
 import json
 import os
-import random
 import time
 
+import paramiko
 from flask import Flask, request, jsonify
+from scp import SCPClient
 
 from lru_cache import LRUCache
 
@@ -17,24 +18,39 @@ cache_misses = 0
 
 CHUNK_SIZE = 1024 * 1024  # 1 MB chunks
 NODES = ['star1', 'star2', 'star3']
-LOCAL_STORAGE = './video_caching/cache_storage/'  # Replace with actual path
-METADATA_FILE = './video_caching/chunks_storage/metadata.json'
+REMOTE_SERVER = 'your_remote_server_ip'
+REMOTE_USER = 'your_username'
+REMOTE_PASSWORD = 'your_password'
+REMOTE_PATH = '/path/to/remote/storage'
+LOCAL_CACHE_PATH = '/path/to/local/cache'
+METADATA_FILE = './video_metadata.json'
 
 
-def simulate_network_delay():
-    # Simulate network delay between 50ms to 500ms
-    time.sleep(random.uniform(0.05, 0.5))
+def create_ssh_client(server, port, user, password):
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(server, port, user, password)
+    return client
 
 
-def get_video_from_local_storage(url):
-    # Simulate fetching video from local storage
-    simulate_network_delay()
-    video_path = os.path.join(LOCAL_STORAGE, os.path.basename(url))
-    print(video_path)
-    if os.path.exists(video_path):
-        return video_path
-    else:
-        raise FileNotFoundError(f"Video not found in local storage: {url}")
+def get_video_from_remote_storage(url):
+    video_name = os.path.basename(url)
+    remote_video_path = os.path.join(REMOTE_PATH, video_name)
+    local_video_path = os.path.join(LOCAL_CACHE_PATH, video_name)
+
+    ssh = create_ssh_client(REMOTE_SERVER, 22, REMOTE_USER, REMOTE_PASSWORD)
+    scp = SCPClient(ssh.get_transport())
+
+    try:
+        scp.get(remote_video_path, local_video_path)
+        scp.close()
+        return local_video_path
+    except FileNotFoundError:
+        scp.close()
+        raise FileNotFoundError(f"Video not found in remote storage: {url}")
+    finally:
+        ssh.close()
 
 
 def chunk_video(video_path):
@@ -92,7 +108,7 @@ def get_video():
     else:
         cache_misses += 1
         try:
-            video_path = get_video_from_local_storage(url)
+            video_path = get_video_from_remote_storage(url)
             chunks = chunk_video(video_path)
             distribution = distribute_chunks(chunks)
             save_metadata(url, distribution)
@@ -103,7 +119,6 @@ def get_video():
             return jsonify(
                 {"message": "Video downloaded and cached", "video_chunks": distribution, "from_cache": False}), 200
         except Exception as e:
-            print(e)
             return jsonify({"error": str(e)}), 500
 
 
