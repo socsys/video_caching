@@ -17,13 +17,21 @@ cache_hits = 0
 cache_misses = 0
 
 CHUNK_SIZE = 1024 * 1024  # 1 MB chunks
-NODES = ['star1', 'star2', 'star3']
+NODES_FILE = 'nodes.json'
 REMOTE_SERVER = 'your_remote_server_ip'
 REMOTE_USER = 'your_username'
 REMOTE_PASSWORD = 'your_password'
 REMOTE_PATH = '/path/to/remote/storage'
 LOCAL_CACHE_PATH = '/path/to/local/cache'
-METADATA_FILE = './video_metadata.json'
+METADATA_FILE = 'video_metadata.json'
+
+
+def load_nodes():
+    with open(NODES_FILE, 'r') as f:
+        return json.load(f)
+
+
+NODES = load_nodes()
 
 
 def create_ssh_client(server, port, user, password):
@@ -48,7 +56,7 @@ def get_video_from_remote_storage(url):
         return local_video_path
     except FileNotFoundError:
         scp.close()
-        raise FileNotFoundError(f"Video not found in remote storage: {url}")
+        return None
     finally:
         ssh.close()
 
@@ -66,11 +74,12 @@ def chunk_video(video_path):
 
 def distribute_chunks(chunks):
     distribution = {}
+    node_ips = list(NODES.values())
     for i, chunk in enumerate(chunks):
-        node = NODES[i % len(NODES)]
-        if node not in distribution:
-            distribution[node] = []
-        distribution[node].append(i)
+        ip = node_ips[i % len(node_ips)]
+        if ip not in distribution:
+            distribution[ip] = []
+        distribution[ip].append(i)
     return distribution
 
 
@@ -92,6 +101,12 @@ def get_metadata(url):
     return None
 
 
+def gather_chunks(distribution):
+    # This is a placeholder function. In a real implementation, you would
+    # actually retrieve the chunks from the specified IP addresses.
+    return [f"Chunk {i} from {ip}" for ip, chunks in distribution.items() for i in chunks]
+
+
 @app.route('/get_video', methods=['GET'])
 def get_video():
     global download_count, total_response_time_with_cache, total_response_time_without_cache, cache_hits, cache_misses
@@ -100,26 +115,29 @@ def get_video():
         return jsonify({"error": "No URL provided"}), 400
 
     start_time = time.time()
-    cached_video = lru_cache.get(url)
-    if cached_video:
+    cached_distribution = lru_cache.get(url)
+    if cached_distribution:
         cache_hits += 1
+        chunks = gather_chunks(cached_distribution)
         total_response_time_with_cache += (time.time() - start_time)
-        return jsonify({"message": "Video is already in cache", "video_chunks": cached_video, "from_cache": True}), 200
+        return jsonify({"message": "Video is in cache", "video_chunks": chunks, "from_cache": True}), 200
     else:
         cache_misses += 1
-        try:
-            video_path = get_video_from_remote_storage(url)
-            chunks = chunk_video(video_path)
-            distribution = distribute_chunks(chunks)
-            save_metadata(url, distribution)
-
-            lru_cache.put(url, distribution)
-            download_count += 1
+        video_path = get_video_from_remote_storage(url)
+        if video_path is None:
             total_response_time_without_cache += (time.time() - start_time)
-            return jsonify(
-                {"message": "Video downloaded and cached", "video_chunks": distribution, "from_cache": False}), 200
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+            return jsonify({"error": "Video not found in remote storage"}), 404
+
+        chunks = chunk_video(video_path)
+        distribution = distribute_chunks(chunks)
+        save_metadata(url, distribution)
+
+        lru_cache.put(url, distribution)
+        download_count += 1
+        total_response_time_without_cache += (time.time() - start_time)
+        return jsonify(
+            {"message": "Video downloaded and cached", "video_chunks": gather_chunks(distribution),
+             "from_cache": False}), 200
 
 
 @app.route('/metrics', methods=['GET'])
