@@ -1,10 +1,13 @@
 import json
+import logging
 import os
 import time
-import logging
+from datetime import datetime
+
 from flask import Flask, request, jsonify
 from paramiko import SSHClient, AutoAddPolicy
 from scp import SCPClient
+
 from lru_cache import LRUCache
 
 app = Flask(__name__)
@@ -14,11 +17,12 @@ total_response_time_with_cache = 0
 total_response_time_without_cache = 0
 cache_hits = 0
 cache_misses = 0
-total_connection_to_satellites_distribution = 0
-total_connection_to_satellites_fetch_cache = 0
+total_data_sent_to_satellites = 0
+total_data_sent_to_clients = 0
 
 CHUNK_SIZE = 10 * 1024 * 1024  # 10 MB chunks
 NODES_FILE = 'nodes.json'
+HANDOFF_FILE = 'handoff.json'
 GROUND_STATION_IP = "127.0.0.1"
 GROUND_STATION_USER = os.getenv("GROUND_STATION_USER")
 GROUND_STATION_PASSWORD = os.getenv("GROUND_STATION_PASSWORD")
@@ -28,11 +32,20 @@ METADATA_FILE = 'video_metadata.json'
 
 logging.basicConfig(level=logging.INFO)
 
+
 def load_nodes():
     with open(NODES_FILE, 'r') as f:
         return json.load(f)
 
+
+def load_handoff():
+    with open(HANDOFF_FILE, 'r') as f:
+        return json.load(f)
+
+
 NODES = load_nodes()
+HANDOFF = load_handoff()
+
 
 def create_ssh_client(server, port, user, password):
     client = SSHClient()
@@ -40,6 +53,7 @@ def create_ssh_client(server, port, user, password):
     client.set_missing_host_key_policy(AutoAddPolicy())
     client.connect(server, port, user, password)
     return client
+
 
 def get_video_chunks_from_remote_storage(url):
     video_name = os.path.basename(url)
@@ -74,6 +88,7 @@ def get_video_chunks_from_remote_storage(url):
     finally:
         ssh.close()
 
+
 def distribute_chunks(chunks):
     distribution = {}
     node_ips = list(NODES.values())
@@ -84,6 +99,7 @@ def distribute_chunks(chunks):
         distribution[ip].append(i)
     return distribution
 
+
 def save_metadata(url, distribution):
     metadata = {}
     if os.path.exists(METADATA_FILE):
@@ -93,6 +109,7 @@ def save_metadata(url, distribution):
     with open(METADATA_FILE, 'w') as f:
         json.dump(metadata, f)
 
+
 def get_metadata(url):
     if os.path.exists(METADATA_FILE):
         with open(METADATA_FILE, 'r') as f:
@@ -100,10 +117,35 @@ def get_metadata(url):
         return metadata.get(url)
     return None
 
+
+def transfer_remaining_chunks(current_ip, chunks):
+    global total_data_sent_to_satellites
+    node_ips = list(NODES.values())
+    current_index = node_ips.index(current_ip)
+    next_index = (current_index + 1) % len(node_ips)
+    next_ip = node_ips[next_index]
+
+    logging.info(f"Transferring remaining chunks to {next_ip}")
+
+    ssh = create_ssh_client(next_ip, 22, 'satellite_user', 'satellite_password')
+    scp = SCPClient(ssh.get_transport())
+
+    for index in chunks:
+        local_chunk_path = f"{LOCAL_CACHE_PATH}/chunk_{index:03d}"
+        with open(local_chunk_path, 'rb') as f:
+            chunk = f.read()
+        scp.put(local_chunk_path, f'/path/on/satellite/chunk_{index:03d}')
+        total_data_sent_to_satellites += len(chunk)
+        os.remove(local_chunk_path)
+
+    scp.close()
+    ssh.close()
+
+
 @app.route('/get_chunk', methods=['GET'])
 def get_chunk():
     global download_count, total_response_time_with_cache, total_response_time_without_cache, cache_hits, \
-        cache_misses, total_connection_to_satellites_distribution, total_connection_to_satellites_fetch_cache
+        cache_misses, total_data_sent_to_clients, total_data_sent_to_satellites
     url = request.args.get('url')
     chunk_index = request.args.get('index', type=int)
     if not url or chunk_index is None:
@@ -118,7 +160,7 @@ def get_chunk():
             with open(chunk_path, 'rb') as f:
                 chunk = f.read()
             total_response_time_with_cache += (time.time() - start_time)
-            total_connection_to_satellites_fetch_cache += len(chunk)
+            total_data_sent_to_clients += len(chunk)
             return jsonify({"message": "Chunk is in cache", "chunk": chunk, "from_cache": True}), 200
 
     cache_misses += 1
@@ -134,8 +176,12 @@ def get_chunk():
     lru_cache.put(url, chunks_path)
     download_count += 1
 
+    current_ip = request.remote_addr
+    if current_ip not in distribution:
+        transfer_remaining_chunks(current_ip, distribution[current_ip])
+
     for ip, chunk_indices in distribution.items():
-        if ip != request.remote_addr:
+        if ip != current_ip:
             ssh = create_ssh_client(ip, 22, 'satellite_user', 'satellite_password')
             scp = SCPClient(ssh.get_transport())
             for index in chunk_indices:
@@ -143,7 +189,7 @@ def get_chunk():
                 with open(local_chunk_path, 'rb') as f:
                     chunk = f.read()
                 scp.put(local_chunk_path, f'/path/on/satellite/chunk_{index:03d}')
-                total_connection_to_satellites_distribution += len(chunk)
+                total_data_sent_to_satellites += len(chunk)
                 os.remove(local_chunk_path)
             scp.close()
             ssh.close()
@@ -153,20 +199,35 @@ def get_chunk():
         chunk = f.read()
 
     total_response_time_without_cache += (time.time() - start_time)
-    # total_data_sent_to_clients += len(chunk)
-    return jsonify({"message": "Chunk retrieved from remote storage", "chunk": chunk, "from_cache": False}), 200
+    total_data_sent_to_clients += len(chunk)
+
+    satellite = None
+    for name, timestamp_str in HANDOFF.items():
+        timestamp = datetime.fromisoformat(timestamp_str)
+        if timestamp <= datetime.now():
+            satellite = timestamp_str
+            break
+
+    return jsonify({
+        "message": "Chunk retrieved from remote storage",
+        "chunk": chunk,
+        "from_cache": False,
+        "satellite_handoff": satellite
+    }), 200
+
 
 @app.route('/metrics', methods=['GET'])
 def get_metrics():
     return jsonify({
-        "gs_download_count": download_count,
+        "download_count": download_count,
         "total_response_time_with_cache": total_response_time_with_cache,
         "total_response_time_without_cache": total_response_time_without_cache,
         "cache_hits": cache_hits,
         "cache_misses": cache_misses,
-        "total_connection_to_satellites_distribution": total_connection_to_satellites_distribution,
-        "total_connection_to_satellites_fetching_cache": total_connection_to_satellites_fetch_cache
+        "total_data_sent_to_satellites": total_data_sent_to_satellites,
+        "total_data_sent_to_clients": total_data_sent_to_clients
     })
+
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=9000)

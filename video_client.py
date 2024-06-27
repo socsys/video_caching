@@ -103,42 +103,38 @@
 #
 # client()
 
-# video_client.py
 import time
+from datetime import datetime
 
 import requests
 
-SERVER_URL = "http://127.0.0.1:9000"
-VIDEO_URL = "http://example.com/path/to/your/200MB_1080p_video.mp4"
 
+def watch_video(url, initial_chunk_index):
+    chunk_index = initial_chunk_index
 
-def request_chunk(video_url, chunk_index):
-    try:
-        response = requests.get(f"{SERVER_URL}/get_chunk", params={"url": video_url, "index": chunk_index})
-        response.raise_for_status()
-        data = response.json()
-        return data['chunk']
-    except requests.RequestException as e:
-        print(f"Error: {e}")
-        return None
+    while True:
+        response = requests.get(f'http://localhost:9000/get_chunk?url={url}&index={chunk_index}')
+        if response.status_code == 200:
+            data = response.json()
+            chunk = data.get('chunk')
+            satellite_handoff = data.get('satellite_handoff')
 
+            if satellite_handoff:
+                satellite_handoff_time = datetime.fromisoformat(satellite_handoff)
+                current_time = datetime.now()
 
-def simulate_watching(video_url, total_chunks):
-    for i in range(total_chunks):
-        print(f"Requesting chunk {i + 1}/{total_chunks}")
-        chunk = request_chunk(video_url, i)
-        if chunk is None:
-            print(f"Error retrieving chunk {i}")
-            break
-        print(f"Watching chunk {i + 1}/{total_chunks}")
-        time.sleep(1)  # Simulate watching time
+                if current_time >= satellite_handoff_time:
+                    print(f"Satellite handoff detected to {satellite_handoff}. Re-requesting chunk {chunk_index}...")
+                    continue
 
-
-def main():
-    # Assume we know the total number of chunks beforehand
-    total_chunks = 20  # For example, 20 chunks for the video
-    simulate_watching(VIDEO_URL, total_chunks)
+            print(f"Received chunk {chunk_index}. Simulating video playback...")
+            time.sleep(1)  # Simulate watching 1 second of video
+            chunk_index += 1  # Increment chunk index for the next request
+        else:
+            print(f"Error fetching chunk: {response.json()['error']}")
 
 
 if __name__ == "__main__":
-    main()
+    url = 'example_video.mp4'  # Replace with actual video URL or identifier
+    initial_chunk_index = 0  # Replace with the initial chunk index to request
+    watch_video(url, initial_chunk_index)
