@@ -29,8 +29,8 @@ def get_ip_for_satellite(constellation_file, satellite_name):
     else:
         print("No IP address found starting with 'LHR'")
 
-    return lhr_ip
-    # return new_ip
+    # return lhr_ip
+    return new_ip
 
 
 def update_nodes():
