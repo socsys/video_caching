@@ -19,7 +19,7 @@ cache_misses = 0
 
 CHUNK_SIZE = 10 * 1024 * 1024  # 10 MB chunks
 NODES_FILE = 'nodes.json'
-GROUND_STATION_IP = 127.0.0.1
+GROUND_STATION_IP = "127.0.0.1"
 GROUND_STATION_USER = "root"
 GROUND_STATION_PASSWORD = ""
 REMOTE_PATH = '/path/to/remote/storage'
