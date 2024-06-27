@@ -3,7 +3,6 @@ import sys
 
 CHUNK_SIZE = 10 * 1024 * 1024  # 10 MB
 
-
 def chunk_video(video_path):
     chunks_dir = video_path + "_chunks"
     if not os.path.exists(chunks_dir):
@@ -21,10 +20,9 @@ def chunk_video(video_path):
             print(chunk_path)
             chunk_num += 1
 
-
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python3 remote_video_chunker.py <video_path>")
+        print("Usage: python3 remote_server.py <video_path>")
         sys.exit(1)
 
     video_path = sys.argv[1]

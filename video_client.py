@@ -103,37 +103,41 @@
 #
 # client()
 
-
+# video_client.py
 import time
 
 import requests
 
-SERVER_URL = "http://your_server_ip:9000"
+SERVER_URL = "http://127.0.0.1:9000"
 VIDEO_URL = "http://example.com/path/to/your/200MB_1080p_video.mp4"
 
 
-def request_video():
-    # response = requests.get(f"{SERVER_URL}/get_video", params={"url": VIDEO_URL})
-    response = requests.get(f"http://127.0.0.1:9000/get_video", params={"url": VIDEO_URL})
-    if response.status_code == 200:
+def request_chunk(video_url, chunk_index):
+    try:
+        response = requests.get(f"{SERVER_URL}/get_chunk", params={"url": video_url, "index": chunk_index})
+        response.raise_for_status()
         data = response.json()
-        print("Initial video request successful")
-        return data['video_chunks']
-    else:
-        print(f"Error: {response.json()['error']}")
+        return data['chunk']
+    except requests.RequestException as e:
+        print(f"Error: {e}")
         return None
 
 
-def simulate_watching(chunks):
-    for i, chunk in enumerate(chunks):
-        print(f"Watching chunk {i + 1}/{len(chunks)}")
-        time.sleep(1)  # Simulate watching time, adjust as needed
+def simulate_watching(video_url, total_chunks):
+    for i in range(total_chunks):
+        print(f"Requesting chunk {i + 1}/{total_chunks}")
+        chunk = request_chunk(video_url, i)
+        if chunk is None:
+            print(f"Error retrieving chunk {i}")
+            break
+        print(f"Watching chunk {i + 1}/{total_chunks}")
+        time.sleep(1)  # Simulate watching time
 
 
 def main():
-    chunks = request_video()
-    if chunks:
-        simulate_watching(chunks)
+    # Assume we know the total number of chunks beforehand
+    total_chunks = 20  # For example, 20 chunks for the video
+    simulate_watching(VIDEO_URL, total_chunks)
 
 
 if __name__ == "__main__":
