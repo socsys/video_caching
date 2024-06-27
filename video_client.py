@@ -69,34 +69,72 @@
 #     main()
 
 
-import requests
+# import requests
+# import time
+# import random
+
+
+# def client():
+#     with open('video_ids.txt', 'r') as f:
+#         video_ids = f.read().splitlines()
+#
+#     # Simulate 1000 random requests from the 100 video IDs
+#     request_ids = [random.choice(video_ids) for _ in range(10000)]
+#
+#     response_times = []
+#     total_hits = 0
+#     total_misses = 0
+#
+#     for video_id in request_ids:
+#         start_time = time.time()
+#         response = requests.get(f'http://localhost:8000/video/{video_id}')
+#         response_time = time.time() - start_time
+#         response_data = response.json()
+#         response_times.append(response_data['response_time'])
+#         total_hits = response_data['hits']
+#         total_misses = response_data['misses']
+#         print(f"Requested {video_id}, response time: {response_time:.6f}s, "
+#               f"cache hits: {total_hits}, cache misses: {total_misses}")
+#
+#     print(f"Average response time: {sum(response_times) / len(response_times):.6f}s")
+#     print(f"Total cache hits: {total_hits}")
+#     print(f"Total cache misses: {total_misses}")
+#
+#
+# client()
+
+
 import time
-import random
 
-def client():
-    with open('video_ids.txt', 'r') as f:
-        video_ids = f.read().splitlines()
+import requests
 
-    # Simulate 1000 random requests from the 100 video IDs
-    request_ids = [random.choice(video_ids) for _ in range(10000)]
+SERVER_URL = "http://your_server_ip:9000"
+VIDEO_URL = "http://example.com/path/to/your/200MB_1080p_video.mp4"
 
-    response_times = []
-    total_hits = 0
-    total_misses = 0
 
-    for video_id in request_ids:
-        start_time = time.time()
-        response = requests.get(f'http://localhost:8000/video/{video_id}')
-        response_time = time.time() - start_time
-        response_data = response.json()
-        response_times.append(response_data['response_time'])
-        total_hits = response_data['hits']
-        total_misses = response_data['misses']
-        print(f"Requested {video_id}, response time: {response_time:.6f}s, "
-              f"cache hits: {total_hits}, cache misses: {total_misses}")
+def request_video():
+    # response = requests.get(f"{SERVER_URL}/get_video", params={"url": VIDEO_URL})
+    response = requests.get(f"http://127.0.0.1:9000/get_video", params={"url": VIDEO_URL})
+    if response.status_code == 200:
+        data = response.json()
+        print("Initial video request successful")
+        return data['video_chunks']
+    else:
+        print(f"Error: {response.json()['error']}")
+        return None
 
-    print(f"Average response time: {sum(response_times) / len(response_times):.6f}s")
-    print(f"Total cache hits: {total_hits}")
-    print(f"Total cache misses: {total_misses}")
 
-client()
+def simulate_watching(chunks):
+    for i, chunk in enumerate(chunks):
+        print(f"Watching chunk {i + 1}/{len(chunks)}")
+        time.sleep(1)  # Simulate watching time, adjust as needed
+
+
+def main():
+    chunks = request_video()
+    if chunks:
+        simulate_watching(chunks)
+
+
+if __name__ == "__main__":
+    main()
